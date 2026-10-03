@@ -6,3 +6,5 @@ outputs/
 .vs/
 *.user
 data/
+dist/
+*.log

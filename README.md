@@ -1,25 +1,74 @@
 # 桌面便签
 
-Windows 桌面任务便签。Markdown 是记录的正式存储格式，程序提供快捷添加、完成记录、历史回看和日报复制。
+贴在桌面上的任务便签：随手记下要做的事，做完划掉，晚上直接复制出当天日报。所有记录以 Markdown 文件保存，不用这个程序也能直接打开查看。
+
+## 快速开始
+
+```powershell
+.\build.ps1 -Run
+```
+
+第一步会运行存储测试，然后把程序打包到 `dist\DeskNotes.exe` 并启动。`dist` 目录可以直接复制到其他电脑运行，不需要另外安装 .NET。
+
+开发时也可以直接运行：
+
+```powershell
+.\build.ps1 -SkipTests
+.\dist\DeskNotes.exe
+```
+
+## 日常用法
+
+在主窗口输入框写一句任务，按回车就保存。想到事情但正在别的软件里，按 `Ctrl+Alt+N` 弹出小窗口，写完回车保存，弹窗关闭。
+
+点复选框完成任务，程序会记录实际完成时间。点任务文字可以编辑标题，也可以写一段“备注 / 实际成果”，这段内容会进入日报。左下角“复制日报”会打开当日日报，可以修改后复制成 Markdown。日期选择框用来回看以前某天，勾选“全部”忽略日期限制。
+
+右上角 `···` 还有其他操作：回收区、打开 Markdown 文件夹、导出全部记录、切换记录目录、贴在桌面或切回普通窗口、调整字号、隐藏到托盘、退出。双击托盘图标等于快捷记录。
+
+## 记录存在哪
+
+默认目录是 `%LOCALAPPDATA%\DeskNotes\data`，每个月一个文件：
+
+```
+data/
+├─ records/
+│  └─ 2026-10.md
+├─ backups/        自动保留的历史版本
+└─ settings.json   窗口位置、字号等设置
+```
+
+Markdown 里每个任务长这样：
+
+```markdown
+## 2026-10-03
+<!-- desknote:{"id":"...","created":"...","completed":null,"deleted":null,"isCompleted":false} -->
+- [ ] 给 Git 文档工具加搜索
+  先支持按标题搜索。
+<!-- /desknote -->
+```
+
+标题、复选框和备注是普通 Markdown，可以直接手改；两个 HTML 注释保存编号和时间，请不要删除。直接手改文件后，程序会在两秒内自动刷新。想手动加任务，写一行 `- [ ] 内容` 也能被识别。
+
+如果手动把 `- [ ]` 改成 `- [x]` 但没有填完成时间，程序会把它放进“完成日期待确认”，不会猜一个时间写进日报。
+
+## 关于贴在桌面
+
+程序会尝试把便签挂到资源管理器桌面层，位置比桌面图标高、比正常程序低，点空白桌面也不会被盖住。这依赖 Windows 内部结构，属于尽力而为：资源管理器重启、分辨率变化或部分系统版本下可能退回普通窗口，状态栏会显示当前模式。如果需要稳定可用，`···` 菜单里可以随时切换成普通窗口。
 
 ## 开发
 
-需要 .NET 10 SDK（Windows）。
-
-```powershell
-dotnet build src/DeskNotes.App
-dotnet run --project tests/DeskNotes.Tests
-dotnet run --project src/DeskNotes.App
+```
+src/DeskNotes.Core   任务模型、Markdown 读写、日报生成
+src/DeskNotes.App    WPF 界面、桌面挂载、托盘、全局快捷键
+tests/DeskNotes.Tests 存储与日报的结算测试
 ```
 
-本地 SDK 可使用 `.\.dotnet\dotnet.exe` 替代 `dotnet`。
+```powershell
+.\.dotnet\dotnet.exe run --project tests\DeskNotes.Tests -c Release
+```
 
-## 设计
+界面自检（不写入正式记录，截图输出到 `work\preview.png`）：
 
-- 数据默认位于 `%LOCALAPPDATA%\DeskNotes\data`，每月一个 Markdown 文件。
-- 未完成任务持续显示；完成事项按实际完成日统计。
-- Markdown 中的 HTML 注释保存任务编号与时间，请保留它们。
-- 桌面模式尝试挂载到 Explorer 桌面窗口；不支持时退回普通非置顶窗口，并显示状态。
-- Ctrl+Alt+N 快捷记录，托盘菜单可打开主窗口、数据目录和退出。
-
-详细使用说明和验证范围将在可运行版本完成后补充。
+```powershell
+.\.dotnet\dotnet.exe run --project src\DeskNotes.App -c Release -- --preview
+```
