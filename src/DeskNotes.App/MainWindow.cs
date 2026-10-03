@@ -33,7 +33,6 @@ public sealed class MainWindow : Window
     private DesktopHost? desktop;
     private Forms.NotifyIcon? tray;
     private bool editing, closing, recycle;
-    private bool recovering;
     private string fingerprint = "";
     private DateTime lastDay = DateTime.Today;
 
@@ -47,6 +46,9 @@ public sealed class MainWindow : Window
         Left = settings.Left; Top = settings.Top; MinWidth = 360; MinHeight = 440;
         if (!Forms.Screen.AllScreens.Any(s => s.WorkingArea.Contains((int)Left, (int)Top))) { Left = 60; Top = 80; }
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.CanResizeWithGrip; ShowInTaskbar = demo;
+        // A desktop note should not steal focus from whatever you are doing when it
+        // appears; you click it or use Ctrl+Alt+N when you actually want to write.
+        ShowActivated = false;
         Background = Brush("#FAFBF6"); Foreground = Brush("#28342B"); FontFamily = new FontFamily("Microsoft YaHei UI"); FontSize = settings.TextSize;
         BuildUi();
         Loaded += (_, _) =>
@@ -57,7 +59,6 @@ public sealed class MainWindow : Window
             {
                 desktop = new DesktopHost(this, QuickAdd);
                 desktop.StatusChanged += message => Dispatcher.Invoke(() => status.Text = message);
-                desktop.WindowLost += RecoverWindow;
                 if (settings.DesktopMode) desktop.Attach();
                 InitTray();
                 status.Text = desktop.Status;
@@ -102,7 +103,7 @@ public sealed class MainWindow : Window
         input.KeyDown += (_, e) => { if (e.Key == Key.Enter) { AddInput(); e.Handled = true; } };
         entry.Children.Add(WithPlaceholder(input, "＋ 记点什么，回车添加…")); Grid.SetRow(entry, 1); root.Children.Add(entry);
         var filters = new DockPanel { Margin = new Thickness(0, 0, 0, 12) };
-        search.TextChanged += (_, _) => Render(); var searchBox = WithPlaceholder(search, "搜索所有记录"); DockPanel.SetDock(searchBox, Dock.Right); filters.Children.Add(searchBox);
+        search.TextChanged += (_, _) => Render(); var searchBox = WithPlaceholder(search, "搜索"); DockPanel.SetDock(searchBox, Dock.Right); filters.Children.Add(searchBox);
         filters.Children.Add(date); filters.Children.Add(all);
         date.SelectedDateChanged += (_, _) => Render(); all.Checked += (_, _) => Render(); all.Unchecked += (_, _) => Render();
         Grid.SetRow(filters, 2); root.Children.Add(filters);
@@ -203,24 +204,6 @@ public sealed class MainWindow : Window
         finally { editing = false; Reload(); }
     }
     private void QuickAdd() => Edit(new TaskItem { CreatedAt = DateTimeOffset.Now }, true);
-    private void RecoverWindow()
-    {
-        if (closing || recovering) return;
-        recovering = true;
-        Dispatcher.BeginInvoke(new Action(() =>
-        {
-            if (closing) return;
-            // Shell teardown can invalidate the child HWND. Recreate the view from
-            // durable Markdown, keeping any already-open editing dialog alive.
-            timer.Stop(); desktop?.Dispose(); tray?.Dispose();
-            var replacement = new MainWindow(false, demo);
-            replacement.input.Text = input.Text;
-            Application.Current.MainWindow = replacement;
-            closing = true;
-            replacement.Show();
-            try { Close(); } catch (InvalidOperationException) { /* native window already gone */ }
-        }));
-    }
     private static void AddMenu(ContextMenu menu, string text, Action action) { var item = new MenuItem { Header = text }; item.Click += (_, _) => action(); menu.Items.Add(item); }
     private void ShowMenu()
     {
@@ -283,9 +266,7 @@ public sealed class MainWindow : Window
     private void SaveSettings()
     {
         if (preview || demo) return;
-        var bounds = desktop?.GetScreenBounds() ?? Rect.Empty;
-        if (!bounds.IsEmpty) { settings.Left = bounds.Left; settings.Top = bounds.Top; settings.Width = bounds.Width; settings.Height = bounds.Height; }
-        else if (!recovering) { settings.Left = Left; settings.Top = Top; settings.Width = ActualWidth; settings.Height = ActualHeight; }
+        settings.Left = Left; settings.Top = Top; settings.Width = ActualWidth; settings.Height = ActualHeight;
         settings.Save();
     }
     private void Quit() { closing = true; Close(); Application.Current.Shutdown(); }
