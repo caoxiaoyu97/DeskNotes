@@ -130,7 +130,13 @@ public sealed class MainWindow : Window
         var heading = new StackPanel();
         heading.Children.Add(new TextBlock { Text = "今日便签", FontSize = 24, FontWeight = FontWeights.SemiBold });
         heading.Children.Add(new TextBlock { Text = "没做完的会一直留着。", FontSize = 11, Foreground = new SolidColorBrush(Color.FromArgb(200, 100, 116, 96)), Margin = new Thickness(0, 3, 0, 4) });
-        heading.MouseLeftButtonDown += (_, e) => { if (e.LeftButton == MouseButtonState.Pressed) { if (desktop != null) desktop.BeginDrag(); else DragMove(); } };
+        heading.MouseLeftButtonDown += (_, e) =>
+        {
+            if (e.LeftButton != MouseButtonState.Pressed) return;
+            if (desktop != null) desktop.BeginDrag(); else DragMove();
+            // Persist where the user dropped the note, so it comes back there next time.
+            SaveSettings();
+        };
         header.Children.Add(heading); root.Children.Add(header);
 
         var entry = new DockPanel { Margin = new Thickness(0, 8, 0, 10) };
