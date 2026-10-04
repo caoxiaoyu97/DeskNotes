@@ -14,6 +14,8 @@ public sealed class AppSettings
     public double Height { get; set; } = 650;
     public bool DesktopMode { get; set; } = true;
     public double TextSize { get; set; } = 14;
+    /// <summary>1.0 = opaque panel, lower values let the wallpaper show through.</summary>
+    public double PanelAlpha { get; set; } = 0.80;
     public static AppSettings Load()
     {
         string path = Path.Combine(BaseDirectory, "settings.json");

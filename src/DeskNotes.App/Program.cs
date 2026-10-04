@@ -12,6 +12,9 @@ internal static class Program
     public static void Main(string[] args)
     {
         bool preview = Array.IndexOf(args, "--preview") >= 0;
+        int startMode = 0;
+        int modeAt = Array.IndexOf(args, "--mode");
+        if (modeAt >= 0 && modeAt + 1 < args.Length && int.TryParse(args[modeAt + 1], out int parsed)) startMode = Math.Clamp(parsed, 0, 2);
         using var mutex = new Mutex(true, preview ? "Local\\DeskNotes.Preview" : "Local\\DeskNotes.App", out bool first);
         if (!first) { MessageBox.Show("桌面便签已经运行，可以从系统托盘打开。", "桌面便签"); return; }
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -28,6 +31,6 @@ internal static class Program
         button.Setters.Add(new Setter(System.Windows.Controls.Control.BorderThicknessProperty, new Thickness(0)));
         button.Setters.Add(new Setter(System.Windows.Controls.Control.CursorProperty, System.Windows.Input.Cursors.Hand));
         app.Resources.Add(typeof(System.Windows.Controls.Button), button);
-        app.Run(new MainWindow(preview, Array.IndexOf(args, "--demo") >= 0));
+        app.Run(new MainWindow(preview, Array.IndexOf(args, "--demo") >= 0, startMode));
     }
 }
