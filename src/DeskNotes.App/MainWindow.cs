@@ -30,6 +30,7 @@ public sealed class MainWindow : Window
     private readonly TextBox input = new() { Padding = new Thickness(10), FontSize = 14, MaxLength = 1000, BorderThickness = new Thickness(0), Background = Glass(165, 255, 255, 255) };
     private readonly TextBox search = new() { Padding = new Thickness(7), Width = 88, BorderThickness = new Thickness(0), Background = Glass(140, 255, 255, 255), ToolTip = "搜索所有任务和备注" };
     private readonly List<Button> tabs = new();
+    private readonly List<DependencyObject> dragExclusions = new();
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly bool preview;
     private readonly bool demo;
@@ -139,22 +140,22 @@ public sealed class MainWindow : Window
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         frame.Child = root;
 
-        var header = new DockPanel { Margin = new Thickness(0, 0, 0, 8), Background = Brushes.Transparent };
+        var header = new DockPanel { Background = Brushes.Transparent };
         var menu = Button("···", ShowMenu); menu.VerticalAlignment = VerticalAlignment.Top; menu.Background = Brushes.Transparent; DockPanel.SetDock(menu, Dock.Right); header.Children.Add(menu);
         var heading = new StackPanel();
         heading.Children.Add(new TextBlock { Text = "今日便签", FontSize = 24, FontWeight = FontWeights.SemiBold });
         heading.Children.Add(new TextBlock { Text = "没做完的会一直留着。", FontSize = 11, Foreground = new SolidColorBrush(Color.FromArgb(200, 100, 116, 96)), Margin = new Thickness(0, 3, 0, 4) });
-        // The whole strip above the input is the drag handle, not just the title text, and
-        // it starts at the top edge of the panel. The menu button stays clickable.
-        header.MouseLeftButtonDown += (_, e) =>
+        header.Children.Add(heading);
+        // A hairline under the title makes the drag strip readable; the drag handler is
+        // attached to the whole panel further down, so the top and side edges work too.
+        root.Children.Add(new Border
         {
-            if (e.LeftButton != MouseButtonState.Pressed) return;
-            if (IsInside(e.OriginalSource as DependencyObject, menu)) return;
-            if (desktop != null) desktop.BeginDrag(); else DragMove();
-            // Persist where the user dropped the note, so it comes back there next time.
-            SaveSettings();
-        };
-        header.Children.Add(heading); root.Children.Add(header);
+            Child = header,
+            BorderBrush = Glass(75, 255, 255, 255),
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(0, 0, 0, 8),
+            Margin = new Thickness(0, 0, 0, 8)
+        });
 
         var entry = new DockPanel { Margin = new Thickness(0, 8, 0, 10) };
         var add = Button("＋", AddInput); add.Background = Glass(180, 219, 232, 209); add.BorderThickness = new Thickness(0); DockPanel.SetDock(add, Dock.Right); entry.Children.Add(add);
@@ -196,6 +197,26 @@ public sealed class MainWindow : Window
         Grid.SetRow(footer, 5); root.Children.Add(footer);
 
         Grid.SetRow(status, 6); root.Children.Add(status);
+
+        // Drag anywhere on the panel except the controls that need the mouse themselves.
+        input.Cursor = Cursors.IBeam;
+        search.Cursor = Cursors.IBeam;
+        scroll.Cursor = Cursors.Arrow;
+        dragExclusions.Add(menu);
+        dragExclusions.Add(add);
+        dragExclusions.Add(input);
+        dragExclusions.Add(search);
+        dragExclusions.Add(scroll);
+        foreach (var tab in tabs) dragExclusions.Add(tab);
+        frame.Cursor = Cursors.SizeAll;
+        frame.MouseLeftButtonDown += (_, e) =>
+        {
+            if (e.LeftButton != MouseButtonState.Pressed) return;
+            if (e.OriginalSource is DependencyObject source && dragExclusions.Exists(x => IsInside(source, x))) return;
+            if (desktop != null) desktop.BeginDrag(); else DragMove();
+            // Persist where the user dropped the note, so it comes back there next time.
+            SaveSettings();
+        };
 
         Content = frame;
     }
