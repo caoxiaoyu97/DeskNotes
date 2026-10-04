@@ -38,6 +38,7 @@ public sealed class MainWindow : Window
     private bool editing, closing, recycle;
     private int mode = ModePending;
     private string fingerprint = "";
+    private string loadError = "";
     private DateTime lastDay = DateTime.Today;
 
     public MainWindow(bool preview, bool demo = false, int startMode = 0)
@@ -71,7 +72,7 @@ public sealed class MainWindow : Window
                 desktop.StatusChanged += message => Dispatcher.Invoke(() => status.Text = message);
                 if (settings.DesktopMode) desktop.Attach();
                 InitTray();
-                status.Text = AppSettings.StartupNote.Length > 0 ? AppSettings.StartupNote + " · " + desktop.Status : desktop.Status;
+                UpdateIdleStatus();
             }
             timer.Start();
             if (preview)
@@ -93,6 +94,18 @@ public sealed class MainWindow : Window
     }
 
     private static SolidColorBrush Brush(string value) => (SolidColorBrush)new BrushConverter().ConvertFromString(value)!;
+    private static string VersionText => typeof(MainWindow).Assembly.GetName().Version is { } v ? $"{v.Major}.{v.Minor}.{v.Build}" : "dev";
+
+    /// <summary>Startup facts the user should be able to check: version, errors, data location.</summary>
+    private void UpdateIdleStatus()
+    {
+        var parts = new List<string>();
+        if (loadError.Length > 0) parts.Add("读取失败：" + loadError);
+        if (AppSettings.StartupNote.Length > 0) parts.Add(AppSettings.StartupNote);
+        if (desktop is not null) parts.Add(desktop.Status);
+        parts.Add("v" + VersionText);
+        status.Text = string.Join(" · ", parts);
+    }
     private static SolidColorBrush Glass(byte alpha, byte r, byte g, byte b) => new(Color.FromArgb(alpha, r, g, b));
     private static Button Button(string text, Action action) { var b = new Button { Content = text }; b.Click += (_, _) => action(); return b; }
 
@@ -214,8 +227,15 @@ public sealed class MainWindow : Window
     }
     private void Reload()
     {
-        try { items = store.Load(); fingerprint = Fingerprint(); Render(); }
-        catch (Exception e) { status.Text = "读取失败，保留当前显示：" + e.Message; }
+        try { items = store.Load(); fingerprint = Fingerprint(); loadError = ""; Render(); }
+        catch (Exception e)
+        {
+            // Never let a read failure look like "no tasks": say so on screen and keep
+            // whatever was already shown instead of silently clearing the list.
+            loadError = e.Message;
+            status.Text = "读取失败，保留当前显示：" + e.Message;
+            Render();
+        }
     }
     private string Fingerprint()
     {
@@ -227,6 +247,19 @@ public sealed class MainWindow : Window
     private void Render()
     {
         list.Children.Clear();
+        if (loadError.Length > 0)
+        {
+            list.Children.Add(new Border
+            {
+                Background = Glass(120, 255, 228, 228), CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(10), Margin = new Thickness(0, 0, 0, 8),
+                Child = new TextBlock
+                {
+                    Text = "记录读取失败，列表可能不完整。文件没有被修改。\n" + loadError + "\n可以打开 backups 文件夹找回上一个版本。",
+                    TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(150, 40, 40))
+                }
+            });
+        }
         bool searching = !string.IsNullOrWhiteSpace(search.Text);
         var visible = items
             .Where(t => recycle ? t.DeletedAt != null : t.DeletedAt == null)
@@ -376,12 +409,14 @@ public sealed class MainWindow : Window
         AddMenu(menu, "补记已完成事项", () => Edit(new TaskItem { CreatedAt = DateTimeOffset.Now, IsCompleted = true, CompletedAt = DateTimeOffset.Now }, false));
         AddMenu(menu, recycle ? "返回任务" : "回收区", () => { recycle = !recycle; Render(); });
         AddMenu(menu, "打开 Markdown 文件夹", OpenFolder);
+        AddMenu(menu, "打开备份文件夹", OpenBackups);
         AddMenu(menu, "导出全部记录为 Markdown", Export);
         AddMenu(menu, "选择数据文件夹…", ChooseFolder);
         AddMenu(menu, "透明度 " + (int)Math.Round(settings.PanelAlpha * 100) + "% →", CycleAlpha);
         AddMenu(menu, "字号 " + settings.TextSize + " → " + (settings.TextSize >= 18 ? 12 : settings.TextSize + 2), () => { settings.TextSize = settings.TextSize >= 18 ? 12 : settings.TextSize + 2; FontSize = settings.TextSize; SaveSettings(); });
         AddMenu(menu, settings.DesktopMode ? "切换为普通窗口" : "贴在桌面", () => { settings.DesktopMode = !settings.DesktopMode; if (settings.DesktopMode) desktop?.Attach(); else desktop?.Detach(); SaveSettings(); });
         AddMenu(menu, "隐藏到托盘", Hide);
+        AddMenu(menu, "关于 · 版本 " + VersionText, ShowAbout);
         AddMenu(menu, "退出", Quit);
         menu.IsOpen = true;
     }
@@ -417,7 +452,7 @@ public sealed class MainWindow : Window
 
     private void InitTray()
     {
-        tray = new Forms.NotifyIcon { Text = "桌面便签 · Ctrl+Alt+N 随手记", Icon = System.Drawing.SystemIcons.Information, Visible = true };
+        tray = new Forms.NotifyIcon { Text = $"桌面便签 v{VersionText} · Ctrl+Alt+N 随手记", Icon = System.Drawing.SystemIcons.Information, Visible = true };
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("显示便签", null, (_, _) => Dispatcher.Invoke(() => { Show(); if (settings.DesktopMode) desktop?.Attach(); else Activate(); }));
         menu.Items.Add("快速记录", null, (_, _) => Dispatcher.Invoke(QuickAdd));
@@ -426,6 +461,28 @@ public sealed class MainWindow : Window
         tray.ContextMenuStrip = menu; tray.DoubleClick += (_, _) => Dispatcher.Invoke(QuickAdd);
     }
     private void OpenFolder() { Directory.CreateDirectory(settings.DataDirectory); Process.Start(new ProcessStartInfo(settings.DataDirectory) { UseShellExecute = true }); }
+    private void OpenBackups()
+    {
+        string backups = Path.Combine(settings.DataDirectory, "backups");
+        Directory.CreateDirectory(backups);
+        Process.Start(new ProcessStartInfo(backups) { UseShellExecute = true });
+    }
+
+    private void ShowAbout()
+    {
+        string[] lines =
+        {
+            $"桌面便签 v{VersionText}",
+            "",
+            "程序：" + AppSettings.ExeDirectory,
+            "设置：" + AppSettings.ConfigPath,
+            "记录：" + settings.DataDirectory,
+            "方式：" + (AppSettings.IsPortable ? "便携，数据与程序放在一起" : "数据在用户目录（程序目录不可写）"),
+            "",
+            "记录是 Markdown 文件，可以直接打开或拷走。"
+        };
+        MessageBox.Show(this, string.Join(Environment.NewLine, lines), "关于 桌面便签", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
     private void ChooseFolder()
     {
         if (editing) { status.Text = "请先保存或关闭编辑窗口，再切换目录。"; return; }
@@ -458,6 +515,12 @@ public sealed class MainWindow : Window
     }
     private void Quit() { closing = true; Close(); Application.Current.Shutdown(); }
     private void SeedPreview()
+    {
+        try { SeedPreviewCore(); }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException) { /* self-check must not block on bad data */ }
+    }
+
+    private void SeedPreviewCore()
     {
         if (store.Load().Count > 0) return;
         foreach (var t in new[] {

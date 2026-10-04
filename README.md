@@ -20,6 +20,10 @@ Windows 11 上做的，用 .NET 10 + WPF。便签会固定在桌面层：普通�
 
 ## 快速开始
 
+从 [Releases](../../releases) 下载 `DeskNotes-win-x64.zip`，解压后直接运行 `DeskNotes.exe`，不需要另外安装 .NET。程序会在自己旁边生成 `config\` 和 `data\`。
+
+也可以自己构建（需要 .NET 10 SDK）：
+
 ```powershell
 .\build.ps1 -Run
 ```

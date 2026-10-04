@@ -8,6 +8,7 @@
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>DeskNotes</AssemblyName>
+    <Version>0.4.0</Version>
     <!-- WPF owns DPI awareness; WinForms is used only for tray and folder picker. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
   </PropertyGroup>
