@@ -35,15 +35,22 @@
 
 ## 记录存在哪
 
-默认目录是 `%LOCALAPPDATA%\DeskNotes\data`，每个月一个文件：
+设置和记录都放在**程序所在的目录**里，和 `DeskNotes.exe` 并排，所以数据在哪一目了然，整个文件夹可以直接拷走：
 
 ```
-data/
-├─ records/
-│  └─ 2026-10.md
-├─ backups/        自动保留的历史版本
-└─ settings.json   窗口位置、字号等设置
+dist/
+├─ DeskNotes.exe
+├─ config/
+│  └─ settings.json   窗口位置、字号、透明度等设置
+└─ data/
+   ├─ records/
+   │  └─ 2026-10.md    每个月一个文件
+   └─ backups/         自动保留的历史版本
 ```
+
+第一次运行这个版本时，如果发现旧位置（`%LOCALAPPDATA%\DeskNotes`）里有记录，会把它们复制到 `data\` 并保留原文件。只有当程序目录不可写（比如放在 Program Files 或只读介质上）时，才会退回原来的用户目录。
+
+注意：因为数据就在程序旁边，**不要单独删除 `dist` 文件夹**，那会连记录一起删掉。重建时可以只覆盖 `DeskNotes.exe`。
 
 Markdown 里每个任务长这样：
 

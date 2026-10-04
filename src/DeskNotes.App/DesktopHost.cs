@@ -56,7 +56,7 @@ public sealed class DesktopHost : IDisposable
             _hotkeyWarning = $"；Ctrl+Alt+N 不可用（Win32 {Marshal.GetLastWin32Error()}）";
         _timer = new DispatcherTimer(DispatcherPriority.Background, _window.Dispatcher)
         {
-            Interval = TimeSpan.FromMilliseconds(700)
+            Interval = TimeSpan.FromMilliseconds(300)
         };
         _timer.Tick += Tick;
         Publish("普通窗口");
@@ -133,11 +133,24 @@ public sealed class DesktopHost : IDisposable
             SetWindowPos(_hwnd, HwndBottom, 0, 0, 0, 0, NoMove | NoSize | NoActivate);
             return;
         }
-        // Already the window directly above the desktop: the normal state, so leave
-        // the z-order alone instead of reordering on every tick.
+        // Touch the z-order only when the desktop has actually climbed above us.
+        // Re-inserting the window on every tick repaints a layered (translucent)
+        // window and shows up as a visible blink.
+        if (IsAboveDesktop(progman)) return;
         var above = GetWindow(progman, GwHwndPrev);
-        if (above == _hwnd) return;
         SetWindowPos(_hwnd, above == IntPtr.Zero ? HwndBottom : above, 0, 0, 0, 0, NoMove | NoSize | NoActivate);
+    }
+
+    /// <summary>True when the note already sits above the desktop window.</summary>
+    private bool IsAboveDesktop(IntPtr progman)
+    {
+        var window = GetWindow(_hwnd, GwHwndPrev);
+        for (int guard = 0; window != IntPtr.Zero && guard < 512; guard++)
+        {
+            if (window == progman) return false;
+            window = GetWindow(window, GwHwndPrev);
+        }
+        return true;
     }
 
     private void Tick(object? sender, EventArgs e)

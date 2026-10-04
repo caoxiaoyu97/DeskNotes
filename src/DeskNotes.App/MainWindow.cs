@@ -44,7 +44,8 @@ public sealed class MainWindow : Window
     {
         this.preview = preview;
         this.demo = demo;
-        settings = preview || demo ? new AppSettings { DataDirectory = Path.Combine(Environment.CurrentDirectory, "work", "preview-data"), DesktopMode = false } : AppSettings.Load();
+        settings = preview || demo ? new AppSettings { DataDirectory = Path.Combine(Environment.CurrentDirectory, "work", "preview-data"), DesktopMode = false } : AppSettings.LoadOrMigrate();
+        Directory.CreateDirectory(settings.DataDirectory);
         store = new MarkdownStore(settings.DataDirectory);
         Title = "今日便签"; Width = Math.Clamp(settings.Width, 340, 900); Height = Math.Clamp(settings.Height, 420, 1200);
         Left = settings.Left; Top = settings.Top; MinWidth = 340; MinHeight = 420;
@@ -70,7 +71,7 @@ public sealed class MainWindow : Window
                 desktop.StatusChanged += message => Dispatcher.Invoke(() => status.Text = message);
                 if (settings.DesktopMode) desktop.Attach();
                 InitTray();
-                status.Text = desktop.Status;
+                status.Text = AppSettings.StartupNote.Length > 0 ? AppSettings.StartupNote + " · " + desktop.Status : desktop.Status;
             }
             timer.Start();
             if (preview)
