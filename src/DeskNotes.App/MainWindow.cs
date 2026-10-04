@@ -50,6 +50,7 @@ public sealed class MainWindow : Window
         Directory.CreateDirectory(settings.DataDirectory);
         store = new MarkdownStore(settings.DataDirectory);
         Title = "今日便签"; Width = Math.Clamp(settings.Width, 340, 900); Height = Math.Clamp(settings.Height, 420, 1200);
+        Icon = AppIcon.Window;
         Left = settings.Left; Top = settings.Top; MinWidth = 340; MinHeight = 420;
         if (!Forms.Screen.AllScreens.Any(s => s.WorkingArea.Contains((int)Left, (int)Top))) { Left = 60; Top = 80; }
         // A translucent panel needs a layered window; the shadow and rounded corners
@@ -487,7 +488,7 @@ public sealed class MainWindow : Window
 
     private void InitTray()
     {
-        tray = new Forms.NotifyIcon { Text = $"桌面便签 v{VersionText} · Ctrl+Alt+N 随手记", Icon = System.Drawing.SystemIcons.Information, Visible = true };
+        tray = new Forms.NotifyIcon { Text = $"桌面便签 v{VersionText} · Ctrl+Alt+N 随手记", Icon = AppIcon.Tray(), Visible = true };
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("显示便签", null, (_, _) => Dispatcher.Invoke(() => { Show(); if (settings.DesktopMode) desktop?.Attach(); else Activate(); }));
         menu.Items.Add("快速记录", null, (_, _) => Dispatcher.Invoke(QuickAdd));

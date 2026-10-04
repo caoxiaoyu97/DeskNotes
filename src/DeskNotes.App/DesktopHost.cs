@@ -133,24 +133,31 @@ public sealed class DesktopHost : IDisposable
             SetWindowPos(_hwnd, HwndBottom, 0, 0, 0, 0, NoMove | NoSize | NoActivate);
             return;
         }
-        // Touch the z-order only when the desktop has actually climbed above us.
-        // Re-inserting the window on every tick repaints a layered (translucent)
-        // window and shows up as a visible blink.
-        if (IsAboveDesktop(progman)) return;
+        // Touch the z-order only when the note has actually drifted off the desktop
+        // layer. Re-inserting on every tick repaints a layered (translucent) window and
+        // shows up as a visible blink.
+        if (SitsOnDesktop(progman)) return;
         var above = GetWindow(progman, GwHwndPrev);
         SetWindowPos(_hwnd, above == IntPtr.Zero ? HwndBottom : above, 0, 0, 0, 0, NoMove | NoSize | NoActivate);
     }
 
-    /// <summary>True when the note already sits above the desktop window.</summary>
-    private bool IsAboveDesktop(IntPtr progman)
+    /// <summary>
+    /// True when the note is parked on the desktop layer: walking up from the desktop,
+    /// the first visible window is the note itself. Hidden helper windows are skipped.
+    ///
+    /// "Desktop is not above me" is not enough - after the note is activated it sits
+    /// above ordinary windows too, and it has to be pushed back down. "The first
+    /// visible window above the desktop is me" covers both, and stays true while the
+    /// note is correctly placed, so nothing is reordered on every tick.
+    /// </summary>
+    private bool SitsOnDesktop(IntPtr progman)
     {
-        var window = GetWindow(_hwnd, GwHwndPrev);
-        for (int guard = 0; window != IntPtr.Zero && guard < 512; guard++)
+        for (var window = GetWindow(progman, GwHwndPrev); window != IntPtr.Zero; window = GetWindow(window, GwHwndPrev))
         {
-            if (window == progman) return false;
-            window = GetWindow(window, GwHwndPrev);
+            if (window == _hwnd) return true;
+            if (IsWindowVisible(window)) return false;
         }
-        return true;
+        return false;
     }
 
     private void Tick(object? sender, EventArgs e)

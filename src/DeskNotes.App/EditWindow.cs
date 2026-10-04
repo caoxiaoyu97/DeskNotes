@@ -12,6 +12,7 @@ public sealed class EditWindow : Window
     public EditWindow(TaskItem item, bool quick, Func<TaskItem, bool> save)
     {
         Title = quick ? "随手记一下" : "编辑事项";
+        Icon = AppIcon.Window;
         Width = 460; Height = quick ? 260 : 410;
         MinWidth = 360; MinHeight = 240;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;

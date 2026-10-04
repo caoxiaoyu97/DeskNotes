@@ -9,7 +9,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>DeskNotes</AssemblyName>
     <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
-    <Version>0.4.2</Version>
+    <Version>0.4.3</Version>
     <ApplicationIcon>..\..\assets\DeskNotes.ico</ApplicationIcon>
     <!-- WPF owns DPI awareness; WinForms is used only for tray and folder picker. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
