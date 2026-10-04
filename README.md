@@ -107,7 +107,7 @@ Markdown 里每个任务长这样：
 
 实现细节、踩过的坑和验证记录见 [docs/VERIFICATION.md](docs/VERIFICATION.md)，其中记录了为什么不能用 `SetParent` 挂到桌面窗口（在 Windows 11 上不绘制，且子窗口拿不到键盘焦点），以及「显示桌面」后便签消失的原因和修法。
 
-程序图标由 `tools/icon/` 生成，字形取自 Windows 自带的 Segoe Fluent Icons 图标字体（`E73D`，微软复选样式），矢量绘制以保证 16px 下清晰。
+程序图标由 `tools/icon/` 生成，字形取自 Windows 自带的 Segoe Fluent Icons 图标字体（`E8FD`，项目符号列表），配绿色圆角底、矢量绘制，保证 16px 下清晰。
 
 ### 已知限制
 
