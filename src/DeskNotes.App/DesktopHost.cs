@@ -20,7 +20,7 @@ public sealed class DesktopHost : IDisposable
 {
     private const int GwlExStyle = -20;
     private const long ExToolWindow = 0x80, ExAppWindow = 0x40000, ExTopmost = 0x8;
-    private const uint NoSize = 0x0001, NoMove = 0x0002, NoActivate = 0x0010;
+    private const uint NoSize = 0x0001, NoMove = 0x0002, NoActivate = 0x0010, GwHwndPrev = 3;
     private const uint SwShowNoActivate = 4;
     private const int HotkeyId = 0x4D4E;
     private static readonly IntPtr HwndBottom = new(1), HwndTop = IntPtr.Zero;
@@ -116,7 +116,29 @@ public sealed class DesktopHost : IDisposable
         return _hwnd != IntPtr.Zero;
     }
 
-    private void Pin() => SetWindowPos(_hwnd, HwndBottom, 0, 0, 0, 0, NoMove | NoSize | NoActivate);
+    /// <summary>
+    /// Parks the note on the desktop layer: below every ordinary program, above the
+    /// desktop itself.
+    ///
+    /// HWND_BOTTOM alone is not enough. It means the absolute bottom of the z-order,
+    /// so once the shell raises the desktop (Show Desktop / Win+D) the note ends up
+    /// *behind* the desktop and disappears while still reporting IsWindowVisible.
+    /// Inserting directly above the desktop window keeps it on screen in both states.
+    /// </summary>
+    private void Pin()
+    {
+        var progman = FindWindowEx(IntPtr.Zero, IntPtr.Zero, "Progman", null);
+        if (progman == IntPtr.Zero)
+        {
+            SetWindowPos(_hwnd, HwndBottom, 0, 0, 0, 0, NoMove | NoSize | NoActivate);
+            return;
+        }
+        // Already the window directly above the desktop: the normal state, so leave
+        // the z-order alone instead of reordering on every tick.
+        var above = GetWindow(progman, GwHwndPrev);
+        if (above == _hwnd) return;
+        SetWindowPos(_hwnd, above == IntPtr.Zero ? HwndBottom : above, 0, 0, 0, 0, NoMove | NoSize | NoActivate);
+    }
 
     private void Tick(object? sender, EventArgs e)
     {
@@ -194,6 +216,8 @@ public sealed class DesktopHost : IDisposable
     [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string? title);
+    [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr hwnd, uint command);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, uint command);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
