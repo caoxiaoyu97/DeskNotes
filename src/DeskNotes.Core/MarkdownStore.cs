@@ -241,27 +241,37 @@ public static class DailyReport
     {
         ArgumentNullException.ThrowIfNull(items);
         var active = items.Where(t => t.DeletedAt is null && LocalDay(t.CreatedAt) <= day).OrderBy(t => t.CreatedAt).ToList();
-        var output = new StringBuilder($"# 日报 {day:yyyy-MM-dd}\n\n");
-        Section("今日完成", active.Where(t => t.IsCompleted && t.CompletedAt is { } completed && LocalDay(completed) == day), true);
-        Section("当前待办", active.Where(t => !t.IsCompleted || t.CompletedAt is { } completed && LocalDay(completed) > day), false);
-        Section("完成日期待确认", active.Where(t => t.IsCompleted && t.CompletedAt is null), true);
-        output.Append("## 明日计划\n\n（待填写）\n");
+        var finished = active.Where(t => t.IsCompleted && t.CompletedAt is { } completed && LocalDay(completed) == day)
+            .OrderBy(t => t.CompletedAt).ToList();
+        var pending = active.Where(t => !t.IsCompleted || (t.CompletedAt is { } later && LocalDay(later) > day)).ToList();
+        var unknown = active.Where(t => t.IsCompleted && t.CompletedAt is null).ToList();
+
+        var output = new StringBuilder($"# 日报 · {day:yyyy-MM-dd} 周{Weekday(day)}\n\n");
+        if (finished.Count + pending.Count + unknown.Count == 0) output.Append("（今天还没有记录）\n\n");
+        Section("今日完成", finished);
+        Section("待办", pending);
+        Section("完成日期待确认", unknown);
+        output.Append("## 明天打算\n\n（待填写）\n");
         return output.ToString();
 
-        void Section(string title, IEnumerable<TaskItem> tasks, bool completed)
+        // Empty sections are skipped: a heading with nothing under it looks broken, and the
+        // numbered plain-text lines paste cleanly into chat tools that do not render Markdown.
+        void Section(string title, List<TaskItem> tasks)
         {
+            if (tasks.Count == 0) return;
             output.Append("## ").Append(title).Append("\n\n");
-            foreach (var task in tasks)
+            for (int i = 0; i < tasks.Count; i++)
             {
-                output.Append(completed ? "- [x] " : "- [ ] ").Append(task.Title).Append('\n');
-                if (task.Notes.Length > 0)
-                    foreach (string line in task.Notes.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
-                        output.Append("  ").Append(line).Append('\n');
+                output.Append(i + 1).Append(". ").Append(tasks[i].Title).Append('\n');
+                if (tasks[i].Notes.Length == 0) continue;
+                foreach (string line in tasks[i].Notes.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+                    output.Append("   ").Append(line).Append('\n');
             }
             output.Append('\n');
         }
     }
 
+    private static char Weekday(DateOnly day) => "日一二三四五六"[(int)day.DayOfWeek];
     private static DateOnly LocalDay(DateTimeOffset timestamp) => DateOnly.FromDateTime(timestamp.LocalDateTime);
 }
 

@@ -108,12 +108,15 @@ var tests = new (string Name, Action<string> Run)[]
         var pending = new TaskItem { Title = "普通待办", CreatedAt = created };
         var future = new TaskItem { Title = "未来创建", CreatedAt = Local(day.AddDays(1), 0) };
         string report = DailyReport.Build([today, later, past, unknown, pending, future], day);
-        Check(Section(report, "今日完成").Contains("今日完成任务") && Section(report, "今日完成").Contains("  完成备注\n  第二行"), "completion uses local date and includes notes");
-        Check(Section(report, "当前待办").Contains("稍后完成") && Section(report, "当前待办").Contains("普通待办"), "as-of backlog includes later completion");
-        Check(!Section(report, "当前待办").Contains("今日完成任务") && !Section(report, "当前待办").Contains("日期未知"), "sections separate completion state");
+        Check(Section(report, "今日完成").Contains("1. 今日完成任务") && Section(report, "今日完成").Contains("   完成备注\n   第二行"), "completion uses local date, numbered, includes notes");
+        Check(Section(report, "待办").Contains("稍后完成") && Section(report, "待办").Contains("普通待办"), "as-of backlog includes later completion");
+        Check(!Section(report, "待办").Contains("今日完成任务") && !Section(report, "待办").Contains("日期未知"), "sections separate completion state");
         Check(Section(report, "完成日期待确认").Contains("日期未知"), "unknown completion separate");
         Check(!report.Contains("未来创建") && !report.Contains("过去已完成"), "future created and old completed excluded");
-        Check(Section(report, "明日计划").Trim() == "（待填写）", "plan never filled with backlog");
+        Check(Section(report, "明天打算").Trim() == "（待填写）", "plan never filled with backlog");
+        Check(report.StartsWith("# 日报 · " + day.ToString("yyyy-MM-dd")), "title carries the date");
+        string pendingOnly = DailyReport.Build([pending], day);
+        Check(!pendingOnly.Contains("## 今日完成") && !pendingOnly.Contains("## 完成日期待确认"), "empty sections are omitted");
     }),
     ("Readable metadata escapes HTML and never duplicates title or notes", root =>
     {
