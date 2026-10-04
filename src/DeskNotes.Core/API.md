@@ -4,6 +4,7 @@ Namespace: `DeskNotes.Core`. Target: `net10.0`; no external packages.
 
 - `TaskItem`: mutable `string Id` (defaults to Guid), `string Title`, `string Notes`, `DateTimeOffset CreatedAt`, `bool IsCompleted`, `DateTimeOffset? CompletedAt`, `DateTimeOffset? DeletedAt`.
 - `MarkdownStore(string root)`: `List<TaskItem> Load()` includes metadata-deleted tasks; callers filter DeletedAt for active lists. `void Save(TaskItem item)` saves one task. Load before editing existing tasks. A new store may save new ids without Load.
+- Only files named `yyyy-MM.md` inside `records/` are treated as data. Anything else (cloud-sync conflict copies such as `2026-10 (冲突副本).md`, scratch notes) is ignored, so a synced folder cannot make loading fail with duplicate ids.
 - `MarkdownConflictException : IOException`: stale/missing task, duplicate ids, existing id without a baseline, or changed creation date. Malformed managed data raises InvalidDataException. Cooperative lock contention raises IOException; callers can retry. Instances require serialized access.
 - `DailyReport.Build(IEnumerable<TaskItem>, DateOnly day)` returns Chinese Markdown with 今日完成, 当前待办, 完成日期待确认, 明日计划.
 

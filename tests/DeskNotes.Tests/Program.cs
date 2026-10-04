@@ -187,6 +187,24 @@ var tests = new (string Name, Action<string> Run)[]
         store.Save(other); other.Notes = "changed"; store.Save(other);
         Check(Directory.GetFiles(Path.Combine(root, "backups"), "*.bak").Length == 51, "retention isolated by month");
     }),
+    ("Stray files in records are ignored", root =>
+    {
+        // A folder-sync client (坚果云 / OneDrive / Dropbox) leaves conflict copies next to
+        // the real file. They carry the same task ids, so parsing them used to abort loading
+        // with "Duplicate task ids" and the app looked as if the records were broken.
+        var store = new MarkdownStore(root);
+        var task = new TaskItem { Title = "唯一任务", CreatedAt = Local(new DateOnly(2026, 10, 3), 9) };
+        store.Save(task);
+        string copy = Path.Combine(root, "records", "2026-10 (冲突副本).md");
+        File.WriteAllText(copy, "# 2026-10\n\n<!-- desknote:{\"id\":\"" + task.Id + "\",\"created\":\"2026-10-03T09:00:00+08:00\",\"completed\":null,\"deleted\":null,\"isCompleted\":false} -->\n- [ ] 冲突副本\n<!-- /desknote -->\n");
+        var loaded = store.Load();
+        Check(loaded.Count == 1 && loaded[0].Title == "唯一任务", "conflict copy ignored, load still works");
+        Directory.CreateDirectory(Path.Combine(root, "records"));
+        File.WriteAllText(Path.Combine(root, "records", "notes.md"), "随手记的东西\n");
+        task.Notes = "改过";
+        store.Save(task);
+        Check(store.Load().Single().Notes == "改过", "saving still works with stray files present");
+    }),
 };
 int failures = 0;
 foreach (var test in tests)

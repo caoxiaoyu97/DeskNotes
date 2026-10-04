@@ -27,6 +27,7 @@ public sealed class MarkdownStore
     private sealed record Metadata(string id, DateTimeOffset created, DateTimeOffset? completed, DateTimeOffset? deleted, bool isCompleted);
     private static readonly Regex Lines = new(@"[^\r\n]*(?:\r\n|\n|\r|$)");
     private static readonly Regex TaskLine = new(@"^- \[([ xX])\] (.*)$");
+    private static readonly Regex MonthlyFile = new(@"^\d{4}-\d{2}\.md$", RegexOptions.IgnoreCase);
     private const string Prefix = "<!-- desknote:";
     private const string End = "<!-- /desknote -->";
 
@@ -125,8 +126,12 @@ public sealed class MarkdownStore
     private List<Entry> ReadAll()
     {
         var dir = Path.Combine(root, "records");
+        // Only our own monthly files are data. A folder-sync client (坚果云 / OneDrive /
+        // Dropbox) drops conflict copies such as "2026-10 (冲突副本).md" next to the real
+        // file; parsing those would duplicate task ids and make loading fail.
         var result = Directory.Exists(dir)
-            ? Directory.GetFiles(dir, "*.md").Order(StringComparer.Ordinal).SelectMany(p => Parse(p, Decode(File.ReadAllBytes(p)))).ToList()
+            ? Directory.GetFiles(dir, "*.md").Where(p => MonthlyFile.IsMatch(Path.GetFileName(p)))
+                .Order(StringComparer.Ordinal).SelectMany(p => Parse(p, Decode(File.ReadAllBytes(p)))).ToList()
             : new List<Entry>();
         if (result.GroupBy(e => e.Item.Id, StringComparer.Ordinal).Any(g => g.Count() > 1))
             throw new MarkdownConflictException("Duplicate task ids found in Markdown records.");
