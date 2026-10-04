@@ -126,6 +126,14 @@
 
 验证：用真实数据跑一遍，输出无空标题、无多余空行；10 组测试全部通过。
 
+## 工作区合并与 Git 同步（第五轮）
+
+- 配置与记录合并成一个可整体带走的文件夹：`<exe>\DeskNotes\`（内含 `config/`、`data/`，开启同步后有 `.git/`）。旧的 `config/`、`data/` 在启动时自动移入：逐个目录处理，移动失败则退回复制且保留原目录，半个迁移下次启动会重做。
+- 修掉迁移引入的一个真 bug：旧设置里的 `DataDirectory` 仍指向 `<exe>\data`，迁移后程序会在那里新建空目录并去读取，**便签会显示成空**。现在只有用户自定义过的路径才会被沿用，默认路径一律改用工作区。
+- Git 同步调用本机 git。提交忽略 `data/backups/`、`*.lock`、`*.tmp`、`*.bak`、`.credentials.json`、`*.log`；令牌通过单次命令的 `http.extraHeader` 传递，不写进仓库或 `.git/config`；远端不存在时通过宿主 API（GitHub / Gitee / GitLab）创建私有仓库；下载前先把本地记录备份到 `data/backups/before-download-*`。
+
+验证：用本地裸仓库代替远端走完整流程，push 后远端 `main` 分支上只有 `.gitattributes`、`.gitignore`、`config/settings.json`、`data/records/2026-10.md` 四个文件，记录内容完整；备份、锁文件与凭据均未进入仓库。**GitHub / Gitee / GitLab 的建仓与令牌校验没有实测**（需要真实令牌），只做了代码路径检查。界面按钮的实际点击也没做——测试期间用户在全屏游戏，且程序窗口在桌面层，点击会落到游戏上。
+
 ## 已修复：显示桌面后便签消失
 
 现象：点任务栏右下角的「显示桌面」后便签消失。

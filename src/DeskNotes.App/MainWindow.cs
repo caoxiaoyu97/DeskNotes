@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -32,6 +33,11 @@ public sealed class MainWindow : Window
     private readonly List<Button> tabs = new();
     private readonly List<DependencyObject> dragExclusions = new();
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(2) };
+    // Debounced Git sync: commit shortly after the last edit, so a burst of typing becomes
+    // one commit instead of one per keystroke.
+    private readonly DispatcherTimer syncTimer = new() { Interval = TimeSpan.FromSeconds(6) };
+    private bool syncing;
+    private SyncWindow? syncWindow;
     private readonly bool preview;
     private readonly bool demo;
     private DesktopHost? desktop;
@@ -91,6 +97,7 @@ public sealed class MainWindow : Window
             try { string current = Fingerprint(); if (current != fingerprint) Reload(); }
             catch (Exception e) { status.Text = "读取失败：" + e.Message; }
         };
+        syncTimer.Tick += (_, _) => { syncTimer.Stop(); RunAutoSync(); };
         Closing += (_, e) => { if (!closing) { e.Cancel = true; Hide(); return; } if (!preview && !demo) SaveSettings(); };
         Closed += (_, _) => { timer.Stop(); desktop?.Dispose(); tray?.Dispose(); };
     }
@@ -251,7 +258,7 @@ public sealed class MainWindow : Window
     }
     private bool Save(TaskItem task)
     {
-        try { store.Save(task); Reload(); status.Text = "已保存到 Markdown · " + DateTime.Now.ToString("HH:mm:ss"); return true; }
+        try { store.Save(task); Reload(); status.Text = "已保存到 Markdown · " + DateTime.Now.ToString("HH:mm:ss"); ScheduleSync(); return true; }
         catch (Exception e) { status.Text = "未保存：" + e.Message; MessageBox.Show(this, e.Message + "\n\n输入内容仍保留，请先复制再处理文件冲突。", "保存未完成", MessageBoxButton.OK, MessageBoxImage.Warning); return false; }
     }
     private void Reload()
@@ -450,6 +457,7 @@ public sealed class MainWindow : Window
         AddMenu(menu, recycle ? "返回任务" : "回收区", () => { recycle = !recycle; Render(); });
         AddMenu(menu, "打开 Markdown 文件夹", OpenFolder);
         AddMenu(menu, "打开备份文件夹", OpenBackups);
+        AddMenu(menu, settings.SyncEnabled ? "Git 同步…（已开启）" : "Git 同步…", ShowSync);
         AddMenu(menu, "导出全部记录为 Markdown", Export);
         AddMenu(menu, "选择数据文件夹…", ChooseFolder);
         AddMenu(menu, "透明度 " + (int)Math.Round(settings.PanelAlpha * 100) + "% →", CycleAlpha);
@@ -501,6 +509,45 @@ public sealed class MainWindow : Window
         tray.ContextMenuStrip = menu; tray.DoubleClick += (_, _) => Dispatcher.Invoke(QuickAdd);
     }
     private void OpenFolder() { Directory.CreateDirectory(settings.DataDirectory); Process.Start(new ProcessStartInfo(settings.DataDirectory) { UseShellExecute = true }); }
+
+    /// <summary>Starts the debounce that commits (and optionally pushes) after an edit.</summary>
+    private void ScheduleSync()
+    {
+        if (!settings.SyncEnabled || settings.SyncRemoteUrl.Length == 0) return;
+        syncTimer.Stop();
+        syncTimer.Start();
+    }
+
+    private async void RunAutoSync()
+    {
+        if (syncing || !settings.SyncEnabled) return;
+        syncing = true;
+        string owner = settings.SyncUserName, secret = AppSettings.SyncToken, branch = settings.SyncBranch;
+        bool push = settings.SyncAutoPush;
+        try
+        {
+            var outcome = await Task.Run(() =>
+            {
+                var git = new GitSync(AppSettings.WorkspaceDirectory);
+                var prepared = git.EnsureRepository(branch);
+                if (!prepared.Ok) return prepared;
+                var commit = git.Commit("更新记录 " + DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
+                if (!commit.Ok || !push) return commit;
+                var pushed = git.Push(branch, owner, secret);
+                return SyncOutcome.Done(commit.Message + "；" + pushed.Message);
+            });
+            status.Text = "同步 · " + outcome.Message;
+        }
+        finally { syncing = false; }
+    }
+
+    private void ShowSync()
+    {
+        if (syncWindow is { IsLoaded: true }) { syncWindow.Activate(); return; }
+        syncWindow = new SyncWindow(settings, () => status.Text = "同步设置已保存");
+        syncWindow.Closed += (_, _) => { syncWindow = null; Reload(); UpdateIdleStatus(); };
+        syncWindow.Show();
+    }
     private void OpenBackups()
     {
         string backups = Path.Combine(settings.DataDirectory, "backups");

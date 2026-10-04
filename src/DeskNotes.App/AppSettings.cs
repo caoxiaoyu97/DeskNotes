@@ -2,25 +2,26 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace DeskNotes.App;
 
+/// <summary>
+/// Settings plus the layout of the user workspace.
+///
+/// Everything the user owns - settings and records - lives in one folder next to the
+/// program (<c>DeskNotes</c>). That folder can be copied, archived, or made into a Git
+/// repository, and it carries the whole user state with it.
+/// </summary>
 public sealed class AppSettings
 {
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
     private static bool portableProbed, portableWritable;
 
-    /// <summary>Folder the program was started from.</summary>
     public static string ExeDirectory { get; } = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
     private static string LegacyRoot { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskNotes");
 
-    /// <summary>
-    /// Settings and records live next to the program, so it is always obvious where
-    /// the data is and the whole folder can be moved or copied. If that folder is not
-    /// writable (read-only media, a locked-down install directory), fall back to the
-    /// per-user location.
-    /// </summary>
     public static bool IsPortable
     {
         get
@@ -35,12 +36,15 @@ public sealed class AppSettings
     }
 
     public static string BaseDirectory => IsPortable ? ExeDirectory : LegacyRoot;
-    public static string ConfigDirectory => Path.Combine(BaseDirectory, "config");
-    public static string ConfigPath => Path.Combine(ConfigDirectory, "settings.json");
-    public static string DefaultDataDirectory => Path.Combine(BaseDirectory, "data");
-    private static string LegacyConfigPath => Path.Combine(LegacyRoot, "settings.json");
 
-    /// <summary>Set when the first run in a new location brought old data across.</summary>
+    /// <summary>The single carry-able folder: config, records, backups, Git metadata.</summary>
+    public static string WorkspaceDirectory { get; } = Path.Combine(BaseDirectory, "DeskNotes");
+    public static string ConfigDirectory { get; } = Path.Combine(WorkspaceDirectory, "config");
+    public static string ConfigPath { get; } = Path.Combine(ConfigDirectory, "settings.json");
+    public static string DefaultDataDirectory { get; } = Path.Combine(WorkspaceDirectory, "data");
+    public static string CredentialPath { get; } = Path.Combine(WorkspaceDirectory, ".credentials.json");
+    private static string LegacyConfigPath { get; } = Path.Combine(LegacyRoot, "settings.json");
+
     public static string StartupNote { get; private set; } = "";
 
     public string DataDirectory { get; set; } = DefaultDataDirectory;
@@ -53,32 +57,75 @@ public sealed class AppSettings
     /// <summary>1.0 = opaque panel, lower values let the wallpaper show through.</summary>
     public double PanelAlpha { get; set; } = 0.80;
 
-    /// <summary>Loads settings, migrating from the older per-user location on first run.</summary>
+    public bool SyncEnabled { get; set; }
+    public string SyncRemoteUrl { get; set; } = "";
+    public string SyncBranch { get; set; } = "main";
+    public string SyncUserName { get; set; } = "";
+    public bool SyncAutoPush { get; set; } = true;
+
+    /// <summary>Stored outside the committed files, never written into the repository.</summary>
+    public static string SyncToken { get; set; } = "";
+
     public static AppSettings LoadOrMigrate()
     {
         StartupNote = "";
+        PrepareWorkspace();
         var settings = Read(ConfigPath) ?? new AppSettings();
-        if (File.Exists(ConfigPath)) return settings;
+        if (File.Exists(ConfigPath)) { LoadCredentials(); return settings; }
 
         var legacy = Read(LegacyConfigPath);
         if (legacy is not null)
         {
-            // Keep how the note looked, then bring the records over so nothing looks lost.
+            // Adopt how the note looked, then bring the records across.
             settings.Left = legacy.Left; settings.Top = legacy.Top;
             settings.Width = legacy.Width; settings.Height = legacy.Height;
             settings.TextSize = legacy.TextSize; settings.PanelAlpha = legacy.PanelAlpha;
             settings.DesktopMode = legacy.DesktopMode;
+            // The pre-0.5 layout kept records in <base>\data, which PrepareWorkspace has
+            // just moved into the workspace. Carrying that stale path over would point the
+            // app at an empty folder, so only a deliberately customised path is adopted.
+            if (legacy.DataDirectory.Length > 0 && !SamePath(legacy.DataDirectory, Path.Combine(BaseDirectory, "data")))
+                settings.DataDirectory = legacy.DataDirectory;
             int copied = CopyRecords(legacy.DataDirectory, settings.DataDirectory);
-            StartupNote = copied > 0
-                ? $"已把 {copied} 条旧记录搬到 {settings.DataDirectory}"
-                : $"数据位置已改为 {settings.DataDirectory}";
+            StartupNote = copied > 0 ? $"已把 {copied} 条旧记录搬到 {settings.DataDirectory}" : "";
         }
-        else
-        {
-            StartupNote = "数据位置：" + settings.DataDirectory;
-        }
+        LoadCredentials();
         try { settings.Save(); } catch (IOException) { }
         return settings;
+    }
+
+    /// <summary>
+    /// Moves the pre-0.5 layout (<c>config</c> and <c>data</c> next to the exe) into the
+    /// single workspace folder. Each folder is moved only when the new one is absent, so
+    /// a half-finished move is simply redone on the next start.
+    /// </summary>
+    private static void PrepareWorkspace()
+    {
+        if (!IsPortable) return;
+        try
+        {
+            Directory.CreateDirectory(WorkspaceDirectory);
+            Move(Path.Combine(BaseDirectory, "config"), ConfigDirectory);
+            Move(Path.Combine(BaseDirectory, "data"), DefaultDataDirectory);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
+
+    private static void Move(string from, string to)
+    {
+        if (!Directory.Exists(from) || Directory.Exists(to)) return;
+        try { Directory.Move(from, to); }
+        catch (IOException)
+        {
+            // Cross-volume or locked: fall back to copying, then leave the original in place.
+            Directory.CreateDirectory(to);
+            foreach (string file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
+            {
+                string target = Path.Combine(to, Path.GetRelativePath(from, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target, true);
+            }
+        }
     }
 
     public void Save()
@@ -89,13 +136,32 @@ public sealed class AppSettings
         File.Move(path + ".tmp", path, true);
     }
 
+    private sealed record Credentials(string Token, string User);
+
+    private static void LoadCredentials()
+    {
+        try
+        {
+            if (!File.Exists(CredentialPath)) return;
+            var parsed = JsonSerializer.Deserialize<Credentials>(File.ReadAllText(CredentialPath));
+            if (parsed is not null) SyncToken = parsed.Token;
+        }
+        catch (Exception e) when (e is IOException or JsonException) { }
+    }
+
+    public static void SaveCredentials(string token, string user)
+    {
+        SyncToken = token;
+        Directory.CreateDirectory(WorkspaceDirectory);
+        File.WriteAllText(CredentialPath, JsonSerializer.Serialize(new Credentials(token, user), Options));
+    }
+
     private static AppSettings? Read(string path)
     {
         try { return File.Exists(path) ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path)) : null; }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return null; }
     }
 
-    /// <summary>Copies monthly records (and backups) when the destination has no records yet.</summary>
     private static int CopyRecords(string from, string to)
     {
         try
@@ -135,5 +201,15 @@ public sealed class AppSettings
             return true;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+    }
+
+    private static bool SamePath(string left, string right)
+    {
+        try
+        {
+            static string Normalize(string value) => Path.GetFullPath(value).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return string.Equals(Normalize(left), Normalize(right), StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { return false; }
     }
 }
