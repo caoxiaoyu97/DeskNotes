@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.IO;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -19,10 +20,11 @@ namespace DeskNotes.App;
 public sealed class DesktopHost : IDisposable
 {
     private const int GwlExStyle = -20;
-    private const long ExToolWindow = 0x80, ExAppWindow = 0x40000, ExTopmost = 0x8;
+    private const long ExToolWindow = 0x80, ExAppWindow = 0x40000, ExTopmost = 0x8, ExNoActivate = 0x08000000;
     private const uint NoSize = 0x0001, NoMove = 0x0002, NoActivate = 0x0010, GwHwndPrev = 3;
     private const uint SwShowNoActivate = 4;
     private const int HotkeyId = 0x4D4E;
+    private const int WmMouseActivate = 0x0021, MaNoActivate = 3;
     private static readonly IntPtr HwndBottom = new(1), HwndTop = IntPtr.Zero;
 
     private readonly Window _window;
@@ -36,6 +38,38 @@ public sealed class DesktopHost : IDisposable
 
     public string Status { get; private set; } = "普通窗口";
     public event Action<string>? StatusChanged;
+
+    /// <summary>
+    /// True while the note lives on the desktop layer: clicking it then must not raise it
+    /// above other programs, so activation by mouse is declined. Text entry opts back in
+    /// through <see cref="ActivateForInput"/>.
+    /// </summary>
+    public bool SuppressClickActivation { get; set; } = true;
+
+    /// <summary>Activates the note so the caret can receive typing; used by the text boxes.</summary>
+    public void ActivateForInput()
+    {
+        Verify();
+        if (!Ensure()) return;
+        // WS_EX_NOACTIVATE stops the window manager from activating the note on click, so
+        // typing has to ask for it explicitly. Drop the style for a moment - activation is
+        // then allowed and the click we are handling is the justification Windows wants -
+        // and Tick puts it back as soon as the note loses focus again.
+        WriteLong(_hwnd, GwlExStyle, ReadLong(_hwnd, GwlExStyle) & ~ExNoActivate);
+        var foreground = GetForegroundWindow();
+        uint owner = foreground == IntPtr.Zero ? 0 : GetWindowThreadProcessId(foreground, out _);
+        uint current = GetCurrentThreadId();
+        bool attached = owner != 0 && owner != current && AttachThreadInput(current, owner, true);
+        try
+        {
+            SetForegroundWindow(_hwnd);
+            SetFocus(_hwnd);
+        }
+        finally
+        {
+            if (attached) AttachThreadInput(current, owner, false);
+        }
+    }
 
     public DesktopHost(Window window, Action quickAdd)
     {
@@ -69,7 +103,10 @@ public sealed class DesktopHost : IDisposable
         if (!Ensure()) return false;
         _wanted = true;
         _window.Topmost = false;
-        WriteLong(_hwnd, GwlExStyle, (ReadLong(_hwnd, GwlExStyle) | ExToolWindow) & ~(ExAppWindow | ExTopmost));
+        // WS_EX_NOACTIVATE is what actually keeps a click from raising the note: the window
+        // manager refuses to activate it, so it cannot climb above other programs. Text
+        // boxes activate it programmatically through ActivateForInput when you type.
+        WriteLong(_hwnd, GwlExStyle, (ReadLong(_hwnd, GwlExStyle) | ExToolWindow | ExNoActivate) & ~(ExAppWindow | ExTopmost));
         Pin();
         _timer.Start();
         Publish(DesktopStatus);
@@ -85,7 +122,7 @@ public sealed class DesktopHost : IDisposable
         if (_hwnd != IntPtr.Zero && IsWindow(_hwnd))
         {
             _window.Topmost = false;
-            WriteLong(_hwnd, GwlExStyle, ReadLong(_hwnd, GwlExStyle) & ~ExTopmost);
+            WriteLong(_hwnd, GwlExStyle, ReadLong(_hwnd, GwlExStyle) & ~(ExTopmost | ExNoActivate));
             SetWindowPos(_hwnd, HwndTop, 0, 0, 0, 0, NoMove | NoSize | NoActivate);
         }
         Publish("普通窗口");
@@ -113,7 +150,24 @@ public sealed class DesktopHost : IDisposable
     {
         if (_hwnd != IntPtr.Zero && IsWindow(_hwnd)) return true;
         _hwnd = new WindowInteropHelper(_window).EnsureHandle();
+        if (_hwnd != IntPtr.Zero && HwndSource.FromHwnd(_hwnd) is { } source) source.AddHook(NoteHook);
         return _hwnd != IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// Declining the mouse activation keeps a click from pulling the note above other
+    /// windows; the click itself is still delivered, so buttons, check boxes, menus and
+    /// dragging keep working. Only the text boxes opt back in, via ActivateForInput.
+    /// </summary>
+    private IntPtr NoteHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (_disposed) return IntPtr.Zero;
+        if (msg == WmMouseActivate && _wanted && SuppressClickActivation)
+        {
+            handled = true;
+            return new IntPtr(MaNoActivate);
+        }
+        return IntPtr.Zero;
     }
 
     /// <summary>
@@ -175,7 +229,15 @@ public sealed class DesktopHost : IDisposable
         }
         // While the note is in the foreground the user is working in it, so leave
         // it alone; otherwise keep it parked below every ordinary program.
-        if (GetForegroundWindow() != _hwnd) Pin();
+        if (GetForegroundWindow() != _hwnd)
+        {
+            // Re-arm click-through protection once the user is done typing.
+            if ((ReadLong(_hwnd, GwlExStyle) & ExNoActivate) == 0)
+            {
+                WriteLong(_hwnd, GwlExStyle, ReadLong(_hwnd, GwlExStyle) | ExNoActivate);
+            }
+            Pin();
+        }
     }
 
     private IntPtr MessageHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -239,6 +301,11 @@ public sealed class DesktopHost : IDisposable
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string? title);
     [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr hwnd, uint command);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint attach, uint attachTo, bool attachFlag);
+    [DllImport("user32.dll")] private static extern IntPtr SetFocus(IntPtr hwnd);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, uint command);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)] private static extern int GetWindowLong(IntPtr hwnd, int index);

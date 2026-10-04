@@ -209,6 +209,10 @@ public sealed class MainWindow : Window
         dragExclusions.Add(search);
         dragExclusions.Add(scroll);
         foreach (var tab in tabs) dragExclusions.Add(tab);
+        // Clicking the panel never raises the note, so the text boxes explicitly ask for
+        // activation when the user actually wants to type.
+        input.PreviewMouseLeftButtonDown += (_, _) => desktop?.ActivateForInput();
+        search.PreviewMouseLeftButtonDown += (_, _) => desktop?.ActivateForInput();
         frame.Cursor = Cursors.SizeAll;
         frame.MouseLeftButtonDown += (_, e) =>
         {
