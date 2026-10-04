@@ -123,7 +123,7 @@ public sealed class MainWindow : Window
 
     private void BuildUi()
     {
-        frame.Padding = new Thickness(18, 14, 18, 12);
+        frame.Padding = new Thickness(18, 8, 18, 12);
         frame.CornerRadius = new CornerRadius(10);
         frame.BorderThickness = new Thickness(1);
         frame.Effect = new DropShadowEffect { BlurRadius = 16, ShadowDepth = 0, Opacity = 0.18, Color = Colors.Black };
@@ -144,9 +144,12 @@ public sealed class MainWindow : Window
         var heading = new StackPanel();
         heading.Children.Add(new TextBlock { Text = "今日便签", FontSize = 24, FontWeight = FontWeights.SemiBold });
         heading.Children.Add(new TextBlock { Text = "没做完的会一直留着。", FontSize = 11, Foreground = new SolidColorBrush(Color.FromArgb(200, 100, 116, 96)), Margin = new Thickness(0, 3, 0, 4) });
-        heading.MouseLeftButtonDown += (_, e) =>
+        // The whole strip above the input is the drag handle, not just the title text, and
+        // it starts at the top edge of the panel. The menu button stays clickable.
+        header.MouseLeftButtonDown += (_, e) =>
         {
             if (e.LeftButton != MouseButtonState.Pressed) return;
+            if (IsInside(e.OriginalSource as DependencyObject, menu)) return;
             if (desktop != null) desktop.BeginDrag(); else DragMove();
             // Persist where the user dropped the note, so it comes back there next time.
             SaveSettings();
@@ -389,6 +392,17 @@ public sealed class MainWindow : Window
             Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
         }
         SaveSettings();
+    }
+
+    /// <summary>True when <paramref name="node"/> is <paramref name="ancestor"/> or inside it.</summary>
+    private static bool IsInside(DependencyObject? node, DependencyObject ancestor)
+    {
+        for (int guard = 0; node is not null && guard < 64; guard++)
+        {
+            if (ReferenceEquals(node, ancestor)) return true;
+            node = node is Visual ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node);
+        }
+        return false;
     }
 
     private void Edit(TaskItem t, bool quick)

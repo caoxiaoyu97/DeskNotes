@@ -8,9 +8,12 @@
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>DeskNotes</AssemblyName>
-    <Version>0.4.0</Version>
+    <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
+    <Version>0.4.1</Version>
+    <ApplicationIcon>..\..\assets\DeskNotes.ico</ApplicationIcon>
     <!-- WPF owns DPI awareness; WinForms is used only for tray and folder picker. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../DeskNotes.Core/DeskNotes.Core.csproj" /></ItemGroup>
+  <ItemGroup><Resource Include="..\..\assets\DeskNotes.ico" Link="assets\DeskNotes.ico" /></ItemGroup>
 </Project>
